@@ -1,0 +1,37 @@
+name: Pure RDP via Tailscale
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rdp:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Enable RDP and Firewall
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          $password = "WindowsRDP#2025" | ConvertTo-SecureString -AsPlainText -Force
+          Set-LocalUser -Name "runneradmin" -Password $password
+        shell: pwsh
+
+      - name: Install Tailscale and Connect
+        env:
+          TS_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        run: |
+          choco install tailscale -y
+          tailscale up --authkey $env:TS_AUTH_KEY --unattended --accept-routes --accept-dns
+        shell: pwsh
+
+      - name: Show RDP details
+        run: |
+          $ip = (tailscale ip -4).Trim()
+          Write-Host "================ RDP IS READY ================"
+          Write-Host "IP Address: $ip"
+          Write-Host "Username  : runneradmin"
+          Write-Host "Password  : WindowsRDP#2025"
+          Write-Host "=============================================="
+          while ($true) { Start-Sleep -Seconds 60 }
+        shell: pwsh
