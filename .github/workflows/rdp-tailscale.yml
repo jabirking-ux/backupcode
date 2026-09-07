@@ -1,4 +1,4 @@
-name: Pure RDP via Tailscale
+name: RDP via Tailscale
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Enable RDP and Firewall
+      - name: Enable RDP and set password
         run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
@@ -17,21 +17,41 @@ jobs:
           Set-LocalUser -Name "runneradmin" -Password $password
         shell: pwsh
 
-      - name: Install Tailscale and Connect
+      - name: Download and install Tailscale
+        run: |
+          Write-Host "Downloading Tailscale installer..."
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/windows/tailscale-setup-latest.exe" -OutFile "$env:TEMP\tailscale-setup.exe"
+          Write-Host "Installing Tailscale silently..."
+          Start-Process -Wait -FilePath "$env:TEMP\tailscale-setup.exe" -ArgumentList "/S"
+          Start-Sleep -Seconds 10
+          if (Test-Path "C:\Program Files\Tailscale\Tailscale.exe") {
+              Write-Host "✅ Tailscale installed successfully."
+          } else {
+              Write-Host "❌ Installation failed."
+              exit 1
+          }
+        shell: pwsh
+
+      - name: Connect to Tailscale network
         env:
           TS_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         run: |
-          choco install tailscale -y
-          tailscale up --authkey $env:TS_AUTH_KEY --unattended --accept-routes --accept-dns
+          & "C:\Program Files\Tailscale\Tailscale.exe" up --authkey $env:TS_AUTH_KEY --unattended --accept-routes --accept-dns
         shell: pwsh
 
-      - name: Show RDP details
+      - name: Show RDP connection details
         run: |
-          $ip = (tailscale ip -4).Trim()
-          Write-Host "================ RDP IS READY ================"
-          Write-Host "IP Address: $ip"
-          Write-Host "Username  : runneradmin"
-          Write-Host "Password  : WindowsRDP#2025"
-          Write-Host "=============================================="
+          # ✅ FIXED: using full path, not just "tailscale"
+          $ip = & "C:\Program Files\Tailscale\Tailscale.exe" ip -4
+          $ip = $ip.Trim()
+          Write-Host "=================================================="
+          Write-Host "      RDP IS READY – CONNECT NOW"
+          Write-Host "=================================================="
+          Write-Host "IP Address : $ip"
+          Write-Host "Username   : runneradmin"
+          Write-Host "Password   : WindowsRDP#2025"
+          Write-Host "=================================================="
+          Write-Host "This session will stay alive for up to 6 hours."
+          Write-Host "To stop: Cancel the workflow in GitHub Actions."
           while ($true) { Start-Sleep -Seconds 60 }
         shell: pwsh
