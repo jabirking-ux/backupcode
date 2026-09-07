@@ -19,24 +19,52 @@ jobs:
 
       - name: Install Tailscale via Chocolatey
         run: |
-          # Chocolatey is pre-installed on GitHub Windows runners
-          choco install tailscale -y
-          # Give it a moment to finish
-          Start-Sleep -Seconds 5
+          Write-Host "Installing Tailscale using Chocolatey..."
+          choco install tailscale -y --verbose
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "❌ Chocolatey installation failed."
+            exit 1
+          }
+          Write-Host "✅ Chocolatey install succeeded. Waiting 10 seconds for files to settle..."
+          Start-Sleep -Seconds 10
+          # Verify the exe exists
+          if (Test-Path "C:\Program Files\Tailscale\Tailscale.exe") {
+            Write-Host "✅ Tailscale.exe found at C:\Program Files\Tailscale\"
+          } else {
+            Write-Host "❌ Tailscale.exe NOT found after installation."
+            exit 1
+          }
         shell: pwsh
 
-      - name: Connect to Tailscale network
+      - name: Connect to Tailscale
         env:
           TS_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         run: |
-          # Use full path to avoid "not recognized" error
+          # Check if auth key is set
+          if (-not $env:TS_AUTH_KEY) {
+            Write-Host "❌ TAILSCALE_AUTH_KEY secret is missing!"
+            exit 1
+          }
+          Write-Host "Connecting to Tailscale network..."
           & "C:\Program Files\Tailscale\Tailscale.exe" up --authkey $env:TS_AUTH_KEY --unattended --accept-routes --accept-dns
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "❌ Tailscale connection failed. Exit code: $LASTEXITCODE"
+            # Show error logs if any
+            & "C:\Program Files\Tailscale\Tailscale.exe" status
+            exit 1
+          }
+          Write-Host "✅ Tailscale connected successfully."
         shell: pwsh
 
-      - name: Show RDP connection details
+      - name: Show RDP details and keep alive
         run: |
-          # Use full path to get the IP address
-          $ip = & "C:\Program Files\Tailscale\Tailscale.exe" ip -4
+          $ts = "C:\Program Files\Tailscale\Tailscale.exe"
+          # Double-check it's there
+          if (-not (Test-Path $ts)) {
+            Write-Host "❌ Tailscale.exe missing – cannot proceed."
+            exit 1
+          }
+          $ip = & $ts ip -4
           $ip = $ip.Trim()
           Write-Host "=================================================="
           Write-Host "      RDP IS READY – CONNECT NOW"
@@ -47,5 +75,12 @@ jobs:
           Write-Host "=================================================="
           Write-Host "This session will stay alive for up to 6 hours."
           Write-Host "To stop: Cancel the workflow in GitHub Actions."
-          while ($true) { Start-Sleep -Seconds 60 }
+          Write-Host ""
+          # Keep the job alive with a heartbeat so you can see it's running
+          $counter = 0
+          while ($true) {
+            Start-Sleep -Seconds 60
+            $counter++
+            Write-Host "⏳ Session alive for $counter minutes..."
+          }
         shell: pwsh
